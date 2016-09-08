@@ -18,16 +18,18 @@ enum tKeyMode {
 };
 
 
-const int beepOut=4; // Connect beeper to this digital port
-const int ledOut=13;   // Connect anode LED to this port. Catode to GND
-const int keyIn=3;    // Connect a pushbutton between this port and GND
+static const int beepOut=4; // Connect beeper to this digital port
+static const int ledOut=13;   // Connect anode LED to this port. Catode to GND
+static const int keyIn=3;    // Connect a pushbutton between this port and GND
+static const unsigned long blinkPeriod = 10 * 1000; // Time between warn blink
 
-static int sleepTime;
-static unsigned long lastKick;
+static unsigned long sleepTime;
+static unsigned long t_lastKick;
+static unsigned long t_lastBlink;
 static int modeIdx;
 
 const struct {
-  unsigned int delay; // In seconds
+  unsigned long delay; // In seconds
   unsigned int flashes;
 } delayTable[] = {
   {3*60, 1},
@@ -38,7 +40,7 @@ const struct {
 
 void setup() {
   // put your setup code here, to run once:
-  Serial.begin(9600);
+  Serial.begin(115200);
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
   }
@@ -46,7 +48,8 @@ void setup() {
   pinMode(ledOut, OUTPUT);
   pinMode(beepOut, OUTPUT);
   pinMode(keyIn, INPUT_PULLUP);
-  lastKick = millis();
+  t_lastKick = millis();
+  t_lastBlink = t_lastKick;
   modeIdx=0;
   modeNext();
 }
@@ -80,15 +83,26 @@ void handleRun(tKeyMode key)
   static bool outHigh = false;
   unsigned long t_now = millis();
   if (key == KEY_SHORT) {
-    lastKick = t_now;
+    t_lastKick = t_now;
     digitalWrite(beepOut, LOW);
     outHigh = false;
     Serial.println("kick");
   } else {
-    if ((outHigh==false) && (t_now > lastKick + sleepTime)) {
-      digitalWrite(beepOut, HIGH);
-      outHigh=true;
-      Serial.println("wakeup");
+    if (outHigh==false) {
+      if (t_now > t_lastKick + sleepTime) {
+        /* Timeout */
+        digitalWrite(beepOut, HIGH);
+        outHigh=true;
+        Serial.println("wakeup");
+      } else {
+        if (t_now > t_lastBlink + blinkPeriod) {
+          Serial.print("time to go: ");
+          Serial.print((sleepTime - (t_now - t_lastKick)) / 1000);
+          Serial.println(" seconds");
+          do_blink (delayTable[modeIdx].flashes);
+          t_lastBlink = t_now;
+        }
+      }
     }
   }
 }
@@ -96,15 +110,16 @@ void handleRun(tKeyMode key)
 void do_blink(int cnt) {
   for(int i=0; i < cnt; i++) {
     digitalWrite(ledOut,HIGH);
-    delay(500);
+    delay(250);
     digitalWrite(ledOut, LOW);
-    delay(500);
+    delay(250);
   }
 }
 
 void modeNext()
 {
   modeIdx++;
+  
   if (delayTable[modeIdx].delay == 0) {
     modeIdx=0;
   }
@@ -114,7 +129,8 @@ void modeNext()
   Serial.print("Setting delay to ");
   Serial.print(delayTable[modeIdx].delay);
   Serial.println(" seconds");
-  lastKick=millis();
+  t_lastKick=millis();
+  t_lastBlink=t_lastKick;
 }
 
 
